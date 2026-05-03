@@ -1,0 +1,318 @@
+mport asyncio
+import logging
+import os
+import requests
+from datetime import time
+from telegram import Bot
+from telegram.ext import Application, CommandHandler, ContextTypes
+import pytz
+
+# ══════════════════════════════════════════════════
+# НАСТРОЙКИ
+# ══════════════════════════════════════════════════
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID          = os.environ.get("CHAT_ID")
+OPENROUTER_KEY   = os.environ.get("OPENROUTER_API_KEY")
+
+BISHKEK = pytz.timezone("Asia/Bishkek")
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
+
+# ══════════════════════════════════════════════════
+# ЗАПРОС К AI через OpenRouter
+# ══════════════════════════════════════════════════
+def ask_claude(system: str, user: str, max_tokens: int = 700) -> str:
+    response = requests.post(
+        url="https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "anthropic/claude-sonnet-4-5",
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"].strip()
+
+# ══════════════════════════════════════════════════
+# ГЕНЕРАТОРЫ КОНТЕНТА
+# ══════════════════════════════════════════════════
+
+def gen_affirmations() -> str:
+    text = ask_claude(
+        system=(
+            "Ты коуч по аффирмациям. Пишешь по-русски. "
+            "Создавай вдохновляющие аффирмации от первого лица «Я...»."
+        ),
+        user=(
+            "Создай 5 мощных аффирмаций для Динары на сегодня. "
+            "Темы: уверенность в себе, красивый голос, развитие, женственность, внутренняя сила. "
+            "Каждую аффирмацию — с новой строки. Без нумерации. Без лишних слов. "
+            "Добавь в конце одну короткую мотивирующую фразу-напутствие."
+        ),
+        max_tokens=500,
+    )
+    return f"🌸 *Аффирмации на сегодня, Динара*\n\n{text}"
+
+
+def gen_voice_exercise() -> str:
+    exercises = [
+        ("Дыхательная разминка", "диафрагмальное дыхание, опора голоса"),
+        ("Резонаторы и гудение", "вибрация в груди и носу, глубина тембра"),
+        ("Дикция — скороговорки", "чёткость согласных, темп, артикуляция"),
+        ("Интонация и пауза", "выразительность, управление паузой"),
+        ("Снятие зажимов", "расслабление гортани, свобода звука"),
+        ("Тембр и окраска голоса", "эмоциональная окраска, цвет голоса"),
+        ("Работа с текстом вслух", "чтение с выражением, акценты"),
+    ]
+    import datetime
+    day = datetime.date.today().timetuple().tm_yday
+    ex_name, ex_focus = exercises[day % len(exercises)]
+
+    text = ask_claude(
+        system=(
+            "Ты опытный педагог по постановке голоса и речи. "
+            "Пишешь по-русски, тепло, конкретно и практично."
+        ),
+        user=(
+            f"Напиши упражнение для Динары на тему «{ex_name}» (фокус: {ex_focus}). "
+            "Структура:\n"
+            "— Название упражнения\n"
+            "— Зачем оно (1 предложение)\n"
+            "— Пошаговая инструкция (4-5 шагов)\n"
+            "— Совет дня (1 предложение)\n\n"
+            "Используй эмодзи умеренно. Без лишних вступлений."
+        ),
+        max_tokens=600,
+    )
+    return f"🎤 *Упражнение для голоса — {ex_name}*\n\n{text}"
+
+
+def gen_rhetoric() -> str:
+    techniques = [
+        "Принцип трёх — три аргумента звучат убедительнее одного",
+        "Сила паузы — пауза перед важной мыслью создаёт акцент",
+        "Метод PREP — Position, Reason, Example, Position",
+        "Анафора — повтор в начале фраз создаёт ритм",
+        "Сторителлинг — история убеждает лучше аргумента",
+        "Антитеза — противопоставление делает фразу запоминаемой",
+        "Зрительный контакт — 3-5 секунд на одного человека",
+        "Конкретика вместо абстракций — цифры и детали",
+        "Структура речи: скажи — скажи — скажи что сказала",
+        "Градация — нарастание напряжения к главной мысли",
+        "Риторический вопрос — вовлекает и заставляет думать",
+        "Эффект начала и конца — аудитория помнит первое и последнее",
+        "Метафора — образ запоминается лучше объяснения",
+        "Активный залог — говори «я сделала», не «было сделано»",
+    ]
+    import datetime
+    day = datetime.date.today().timetuple().tm_yday
+    technique = techniques[day % len(techniques)]
+
+    text = ask_claude(
+        system=(
+            "Ты тренер по риторике и ораторскому мастерству. "
+            "Пишешь по-русски, живо и практично."
+        ),
+        user=(
+            f"Объясни технику риторики для Динары: «{technique}».\n\n"
+            "Структура:\n"
+            "— Суть техники (2-3 предложения)\n"
+            "— Пример из жизни или речи (конкретная фраза)\n"
+            "— Мини-задание на сегодня (одно действие)\n\n"
+            "Будь краткой и вдохновляющей. Без лишних вступлений."
+        ),
+        max_tokens=500,
+    )
+    return f"🎙️ *Техника риторики дня*\n\n{text}"
+
+
+def gen_meta_card() -> str:
+    cards = [
+        ("🌊 Течение", "Куда ведёт тебя твоё течение прямо сейчас?"),
+        ("🌸 Расцвет", "Что в тебе сейчас раскрывается и хочет расцвести?"),
+        ("🔥 Огонь", "Что зажигает тебя изнутри?"),
+        ("🌙 Луна", "Что скрыто в тени, о чём ты ещё не готова говорить?"),
+        ("🦋 Трансформация", "Через какую трансформацию ты сейчас проходишь?"),
+        ("🌿 Корни", "Что даёт тебе силу и почву под ногами?"),
+        ("⭐ Путеводная звезда", "Какая твоя настоящая мечта — та, что шепчет в тишине?"),
+        ("🪞 Зеркало", "Что ты видишь, когда честно смотришь внутрь себя?"),
+        ("🌈 После бури", "Что появится в твоей жизни после нынешнего периода?"),
+        ("🗝️ Ключ", "Какая дверь ждёт, когда ты решишься её открыть?"),
+        ("🕊️ Свобода", "От чего нужно отпустить, чтобы почувствовать свободу?"),
+        ("💎 Ценность", "Что в тебе есть ценного, что ты пока не замечаешь?"),
+    ]
+    import datetime
+    day = datetime.date.today().timetuple().tm_yday
+    card_name, card_question = cards[day % len(cards)]
+
+    text = ask_claude(
+        system=(
+            "Ты мудрый проводник по метафорическим картам. "
+            "Пишешь по-русски, поэтично, мягко и глубоко. "
+            "Не даёшь прямых ответов — помогаешь искать их внутри."
+        ),
+        user=(
+            f"Карта дня для Динары: {card_name}\n"
+            f"Вопрос карты: {card_question}\n\n"
+            "Дай:\n"
+            "— Короткую поэтичную интерпретацию карты (3-4 предложения)\n"
+            "— Один вопрос для размышления на день\n"
+            "— Одну короткую аффирмацию, связанную с картой\n\n"
+            "Пиши тепло, как будто шепчешь послание."
+        ),
+        max_tokens=500,
+    )
+    return (
+        f"🃏 *Карта дня — {card_name}*\n\n"
+        f"_{card_question}_\n\n"
+        f"{text}"
+    )
+
+
+def gen_kyrgyz() -> str:
+    words = [
+        ("Жүрөк", "[zhürök]", "Сердце / Душа", "Жүрөгүм сени сагынат — Моё сердце скучает по тебе"),
+        ("Жарык", "[zharïk]", "Свет / Светлый", "Жарык дүйнө — Светлый мир"),
+        ("Сүйүү", "[süyüü]", "Любовь", "Мен сени сүйөм — Я тебя люблю"),
+        ("Кооз", "[kooz]", "Красивый", "Сен абдан кооз сың — Ты очень красивая"),
+        ("Ырыс", "[ïrïs]", "Счастье", "Ырыс алды ынтымак — Счастье начинается с согласия"),
+        ("Тынчтык", "[tïnchtïk]", "Мир / Покой", "Тынчтык болсун — Пусть будет мир"),
+        ("Умут", "[umut]", "Надежда", "Умут менен жашайм — Живу с надеждой"),
+        ("Жаңы", "[zhanï]", "Новый", "Жаңы башталыш — Новое начало"),
+        ("Кудурет", "[kudüret]", "Сила", "Анын кудурети чоң — Её сила велика"),
+        ("Ак жол", "[ak zhol]", "Счастливого пути", "Ак жол! — Счастливого пути!"),
+        ("Ысык", "[ïsïk]", "Тёплый", "Ысык жүрөк — Тёплое сердце"),
+        ("Сулуу", "[suluu]", "Красивая", "Сен абдан сулуусуң — Ты очень красивая"),
+        ("Бакыт", "[bakït]", "Счастье", "Бакытты издейм — Ищу счастье"),
+        ("Жылуу", "[zhïluu]", "Тёплый (о чувствах)", "Жылуу сөздөр — Тёплые слова"),
+    ]
+    import datetime
+    day = datetime.date.today().timetuple().tm_yday
+    word, transcription, meaning, example = words[day % len(words)]
+
+    text = ask_claude(
+        system=(
+            "Ты дружелюбный репетитор по кыргызскому языку. "
+            "Пишешь по-русски. Объясняешь тепло и с юмором."
+        ),
+        user=(
+            f"Слово дня для Динары: «{word}» {transcription} — {meaning}\n\n"
+            "Напиши:\n"
+            "— Интересный факт об этом слове (1-2 предложения)\n"
+            "— 2 примера употребления (кыргызский + перевод)\n"
+            "— Похожие слова (если есть)\n"
+            "— Мини-задание: придумай своё предложение с этим словом\n\n"
+            "Пиши живо и с теплом. Без лишних вступлений."
+        ),
+        max_tokens=500,
+    )
+    return (
+        f"🇰🇬 *Кыргызское слово дня*\n\n"
+        f"*{word}* {transcription}\n"
+        f"_{meaning}_\n\n"
+        f"📝 _{example}_\n\n"
+        f"{text}"
+    )
+
+# ══════════════════════════════════════════════════
+# ОТПРАВКА
+# ══════════════════════════════════════════════════
+async def send(bot: Bot, text: str):
+    await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="Markdown")
+
+async def job_affirmations(context: ContextTypes.DEFAULT_TYPE):
+    log.info("Sending affirmations...")
+    await send(context.bot, gen_affirmations())
+
+async def job_voice(context: ContextTypes.DEFAULT_TYPE):
+    log.info("Sending voice exercise...")
+    await send(context.bot, gen_voice_exercise())
+
+async def job_rhetoric(context: ContextTypes.DEFAULT_TYPE):
+    log.info("Sending rhetoric...")
+    await send(context.bot, gen_rhetoric())
+
+async def job_card(context: ContextTypes.DEFAULT_TYPE):
+    log.info("Sending meta card...")
+    await send(context.bot, gen_meta_card())
+
+async def job_kyrgyz(context: ContextTypes.DEFAULT_TYPE):
+    log.info("Sending kyrgyz word...")
+    await send(context.bot, gen_kyrgyz())
+
+# ══════════════════════════════════════════════════
+# КОМАНДЫ
+# ══════════════════════════════════════════════════
+async def cmd_start(update, context):
+    await update.message.reply_text(
+        "🌸 Привет, Динара! Я твой личный помощник.\n\n"
+        "Каждый день буду присылать:\n"
+        "• 09:00 — Аффирмации 🌸\n"
+        "• 10:00 — Упражнение для голоса 🎤\n"
+        "• 10:01 — Слово на кыргызском 🇰🇬\n"
+        "• 11:00 — Техника риторики 🎙️\n"
+        "• 12:00 — Карта дня 🃏\n\n"
+        "Или запроси прямо сейчас:\n"
+        "/affirm — аффирмации\n"
+        "/voice — голос\n"
+        "/rhetoric — риторика\n"
+        "/card — карта дня\n"
+        "/kyrgyz — кыргызский\n"
+        "/all — всё сразу ✨",
+    )
+
+async def cmd_affirm(update, context):
+    await update.message.reply_text(gen_affirmations(), parse_mode="Markdown")
+
+async def cmd_voice(update, context):
+    await update.message.reply_text(gen_voice_exercise(), parse_mode="Markdown")
+
+async def cmd_rhetoric(update, context):
+    await update.message.reply_text(gen_rhetoric(), parse_mode="Markdown")
+
+async def cmd_card(update, context):
+    await update.message.reply_text(gen_meta_card(), parse_mode="Markdown")
+
+async def cmd_kyrgyz(update, context):
+    await update.message.reply_text(gen_kyrgyz(), parse_mode="Markdown")
+
+async def cmd_all(update, context):
+    for fn in [gen_affirmations, gen_voice_exercise, gen_rhetoric, gen_meta_card, gen_kyrgyz]:
+        await update.message.reply_text(fn(), parse_mode="Markdown")
+        await asyncio.sleep(1)
+
+# ══════════════════════════════════════════════════
+# ЗАПУСК
+# ══════════════════════════════════════════════════
+def main():
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    app.add_handler(CommandHandler("start",    cmd_start))
+    app.add_handler(CommandHandler("affirm",   cmd_affirm))
+    app.add_handler(CommandHandler("voice",    cmd_voice))
+    app.add_handler(CommandHandler("rhetoric", cmd_rhetoric))
+    app.add_handler(CommandHandler("card",     cmd_card))
+    app.add_handler(CommandHandler("kyrgyz",   cmd_kyrgyz))
+    app.add_handler(CommandHandler("all",      cmd_all))
+
+    # Расписание по Бишкеку (UTC+6)
+    app.job_queue.run_daily(job_affirmations, time=time(9,  0, tzinfo=BISHKEK))
+    app.job_queue.run_daily(job_voice,        time=time(10, 0, tzinfo=BISHKEK))
+    app.job_queue.run_daily(job_kyrgyz,       time=time(10, 1, tzinfo=BISHKEK))
+    app.job_queue.run_daily(job_rhetoric,     time=time(11, 0, tzinfo=BISHKEK))
+    app.job_queue.run_daily(job_card,         time=time(12, 0, tzinfo=BISHKEK))
+
+    log.info("Бот запущен ✅")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
