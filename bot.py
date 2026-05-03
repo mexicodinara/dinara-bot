@@ -3,8 +3,8 @@ import logging
 import os
 import requests
 from datetime import time
-from telegram import Bot
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Bot, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import pytz
 
 # ══════════════════════════════════════════════════
@@ -23,6 +23,20 @@ log = logging.getLogger(__name__)
 # ПОДПИСЧИКИ
 # ══════════════════════════════════════════════════
 subscribers: set = set()
+chat_histories: dict = {}
+
+# ══════════════════════════════════════════════════
+# КЛАВИАТУРА
+# ══════════════════════════════════════════════════
+MENU = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("🌸 Аффирмации"),   KeyboardButton("🎤 Голос")],
+        [KeyboardButton("🎙️ Риторика"),     KeyboardButton("🃏 Карта дня")],
+        [KeyboardButton("🇰🇬 Кыргызский"),  KeyboardButton("✨ Всё сразу")],
+    ],
+    resize_keyboard=True,
+    persistent=True,
+)
 
 # ══════════════════════════════════════════════════
 # ЗАПРОС К AI
@@ -158,7 +172,7 @@ def gen_kyrgyz() -> str:
     return f"🇰🇬 *Кыргызское слово дня*\n\n*{word}* {transcription}\n_{meaning}_\n\n📝 _{example}_\n\n{text}"
 
 # ══════════════════════════════════════════════════
-# РАССЫЛКА ВСЕМ ПОДПИСЧИКАМ
+# РАССЫЛКА
 # ══════════════════════════════════════════════════
 async def broadcast(bot: Bot, text: str):
     all_users = subscribers | {CHAT_ID}
@@ -191,22 +205,15 @@ async def cmd_start(update, context):
     subscribers.add(uid)
     name = update.effective_user.first_name or "друг"
     await update.message.reply_text(
-        f"🌸 Привет, {name}! Я помощник по развитию.\n\n"
+        f"🌸 Привет, {name}! Я твой помощник по развитию.\n\n"
         "Каждый день буду присылать:\n"
         "• 09:00 — Аффирмации 🌸\n"
-        "• 10:00 — Упражнение для голоса 🎤\n"
-        "• 10:01 — Слово на кыргызском 🇰🇬\n"
-        "• 11:00 — Техника риторики 🎙️\n"
+        "• 10:00 — Голос 🎤\n"
+        "• 10:01 — Кыргызский 🇰🇬\n"
+        "• 11:00 — Риторика 🎙️\n"
         "• 12:00 — Карта дня 🃏\n\n"
-        "Команды:\n"
-        "/affirm — аффирмации\n"
-        "/voice — голос\n"
-        "/rhetoric — риторика\n"
-        "/card — карта дня\n"
-        "/kyrgyz — кыргызский\n"
-        "/all — всё сразу ✨\n"
-        "/stop — отписаться\n\n"
-        "Ты подписана на ежедневную рассылку! 🎉"
+        "Или нажми кнопку внизу 👇",
+        reply_markup=MENU,
     )
 
 async def cmd_stop(update, context):
@@ -214,25 +221,79 @@ async def cmd_stop(update, context):
     subscribers.discard(uid)
     await update.message.reply_text("Ты отписалась. Напиши /start чтобы подписаться снова.")
 
-async def cmd_affirm(update, context):
-    await update.message.reply_text(gen_affirmations(), parse_mode="Markdown")
+# ══════════════════════════════════════════════════
+# ОБРАБОТЧИК ВСЕХ СООБЩЕНИЙ
+# ══════════════════════════════════════════════════
+async def handle_message(update, context):
+    uid = update.effective_chat.id
+    name = update.effective_user.first_name or "друг"
+    text = update.message.text
 
-async def cmd_voice(update, context):
-    await update.message.reply_text(gen_voice_exercise(), parse_mode="Markdown")
+    # Кнопки меню
+    if text == "🌸 Аффирмации":
+        await update.message.reply_text(gen_affirmations(), parse_mode="Markdown", reply_markup=MENU)
+        return
+    if text == "🎤 Голос":
+        await update.message.reply_text(gen_voice_exercise(), parse_mode="Markdown", reply_markup=MENU)
+        return
+    if text == "🎙️ Риторика":
+        await update.message.reply_text(gen_rhetoric(), parse_mode="Markdown", reply_markup=MENU)
+        return
+    if text == "🃏 Карта дня":
+        await update.message.reply_text(gen_meta_card(), parse_mode="Markdown", reply_markup=MENU)
+        return
+    if text == "🇰🇬 Кыргызский":
+        await update.message.reply_text(gen_kyrgyz(), parse_mode="Markdown", reply_markup=MENU)
+        return
+    if text == "✨ Всё сразу":
+        for fn in [gen_affirmations, gen_voice_exercise, gen_rhetoric, gen_meta_card, gen_kyrgyz]:
+            await update.message.reply_text(fn(), parse_mode="Markdown")
+            await asyncio.sleep(1)
+        return
 
-async def cmd_rhetoric(update, context):
-    await update.message.reply_text(gen_rhetoric(), parse_mode="Markdown")
+    # Свободный чат с AI
+    if uid not in chat_histories:
+        chat_histories[uid] = []
 
-async def cmd_card(update, context):
-    await update.message.reply_text(gen_meta_card(), parse_mode="Markdown")
+    chat_histories[uid].append({"role": "user", "content": text})
 
-async def cmd_kyrgyz(update, context):
-    await update.message.reply_text(gen_kyrgyz(), parse_mode="Markdown")
+    if len(chat_histories[uid]) > 20:
+        chat_histories[uid] = chat_histories[uid][-20:]
 
-async def cmd_all(update, context):
-    for fn in [gen_affirmations, gen_voice_exercise, gen_rhetoric, gen_meta_card, gen_kyrgyz]:
-        await update.message.reply_text(fn(), parse_mode="Markdown")
-        await asyncio.sleep(1)
+    await context.bot.send_chat_action(chat_id=uid, action="typing")
+
+    try:
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "anthropic/claude-sonnet-4-5",
+                "max_tokens": 700,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            f"Ты личный помощник и коуч по саморазвитию. "
+                            f"Ты общаешься с {name}. "
+                            "Помогаешь с: голосом, риторикой, аффирмациями, "
+                            "кыргызским языком, личными границами и саморазвитием. "
+                            "Отвечай по-русски, тепло и по делу."
+                        )
+                    }
+                ] + chat_histories[uid],
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        reply = response.json()["choices"][0]["message"]["content"].strip()
+        chat_histories[uid].append({"role": "assistant", "content": reply})
+        await update.message.reply_text(reply, reply_markup=MENU)
+    except Exception as e:
+        log.error(f"Chat error: {e}")
+        await update.message.reply_text("Что-то пошло не так, попробуй ещё раз 🙏", reply_markup=MENU)
 
 # ══════════════════════════════════════════════════
 # ЗАПУСК
@@ -240,14 +301,9 @@ async def cmd_all(update, context):
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    app.add_handler(CommandHandler("start",    cmd_start))
-    app.add_handler(CommandHandler("stop",     cmd_stop))
-    app.add_handler(CommandHandler("affirm",   cmd_affirm))
-    app.add_handler(CommandHandler("voice",    cmd_voice))
-    app.add_handler(CommandHandler("rhetoric", cmd_rhetoric))
-    app.add_handler(CommandHandler("card",     cmd_card))
-    app.add_handler(CommandHandler("kyrgyz",   cmd_kyrgyz))
-    app.add_handler(CommandHandler("all",      cmd_all))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("stop",  cmd_stop))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.job_queue.run_daily(job_affirmations, time=time(9,  0, tzinfo=BISHKEK))
     app.job_queue.run_daily(job_voice,        time=time(10, 0, tzinfo=BISHKEK))
