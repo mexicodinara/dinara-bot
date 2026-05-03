@@ -35,7 +35,7 @@ MENU = ReplyKeyboardMarkup(
         [KeyboardButton("🇰🇬 Кыргызский"),  KeyboardButton("✨ Всё сразу")],
     ],
     resize_keyboard=True,
-    persistent=True,
+    is_persistent=True,
 )
 
 # ══════════════════════════════════════════════════
@@ -316,7 +316,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
